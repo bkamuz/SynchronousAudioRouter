@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project>
+  <!-- Force a VisualStudioVersion MSBuild property that matches the WDK NuGet package
+       binaries (Microsoft.DriverKit.Build.Tasks.17.0.dll). This is a minimal, repo-level
+       override to make msbuild/VS pick the 17.x driverkit tasks that ship in the package.
+       If you prefer not to hardcode this, remove this file and build with
+       /p:VisualStudioVersion=17.0 on the command line instead. -->
+  <PropertyGroup>
+    <VisualStudioVersion>17.0</VisualStudioVersion>
+    <!-- Force WDK build folder to the version provided by the NuGet package so
+         WindowsDriver.Common.targets finds the task DLL under
+         $(WDKContentRoot)build\$(WDKBuildFolder)\bin\... instead of falling back
+         to an empty WDKBuildFolder which results in ...\\build\\bin. Adjust if
+         you later upgrade the NuGet package to a different kit version. -->
+    <WDKBuildFolder>10.0.26100.0</WDKBuildFolder>
+    <!-- Point WDK tool roots to the NuGet package 'c\bin' folder which contains
+      stampinf.exe. Use $(WDKContentRoot) (set by the NuGet props) so we don't
+      accidentally duplicate the 'packages\...' fragment when building. -->
+    <WDKBinRoot>$(WDKContentRoot)\bin\$(WDKBuildFolder)\</WDKBinRoot>
+    <!-- Per-architecture WDK bin roots. These point directly at the NuGet
+      package 'c\bin\<kit>\x64' and '...\x86' locations so Tracker and
+      other WDK targets can find native tools like drvcat.exe/stampinf.exe
+      when invoked without a fully-qualified path. -->
+    <WDKBinRoot_x64>$(WDKBinRoot)x64\</WDKBinRoot_x64>
+    <WDKBinRoot_x86>$(WDKBinRoot)x86\</WDKBinRoot_x86>
+    <!-- Inf tool settings used by StampInf/Tracker targets. InfToolExe is the
+      executable name (stampinf.exe) and InfToolPath will be set based on
+      the active platform (x64/x86) by the WDK targets; setting explicit
+      paths here points the tasks at the NuGet package binaries. -->
+    <InfToolExe>stampinf.exe</InfToolExe>
+    <!-- Tool paths pointing at the NuGet package 'c\bin\<kit>\<arch>' folders. -->
+    <InfToolPath>$(WDKBinRoot_x64)</InfToolPath>
+    <DrvCatToolPath>$(WDKBinRoot_x64)</DrvCatToolPath>
+    <!-- Inf2Cat.exe is distributed as an x86 tool in the NuGet package; ensure the tool path
+      points at the x86 bin folder so the MSBuild Inf2Cat task finds the executable. -->
+    <Inf2CatToolPath>$(WDKBinRoot_x86)</Inf2CatToolPath>
+    <!-- Provide per-architecture overrides in case the WDK targets switch to
+      x86 during a 32-bit tool invocation. Projects or command-line can
+      override these if needed. -->
+    <InfToolPath_x86>$(WDKBinRoot_x86)</InfToolPath_x86>
+    <DrvCatToolPath_x86>$(WDKBinRoot_x86)</DrvCatToolPath_x86>
+    <Inf2CatToolPath_x86>$(WDKBinRoot_x86)</Inf2CatToolPath_x86>
+
+    <!-- Define WIX to the NuGet-installed WiX tools folder (if present). The
+      SarInstallerActions project expects $(WIX)sdk\VS2015\inc; map the
+      NuGet layout so those includes resolve. We also keep the existing
+      WiXIncludePath for direct AdditionalIncludeDirectories fallback. -->
+    <WIX Condition="Exists('$(UserProfile)\\.nuget\\packages\\wix\\3.14.1\\tools\\')">$(UserProfile)\\.nuget\\packages\\wix\\3.14.1\\tools\\</WIX>
+    <!-- If WiX is installed via NuGet (or the WiX Toolset is installed), point
+      compiler include paths to the WiX SDK includes so headers like
+      'wcautil.h' are found. This uses the user's global NuGet cache when
+      present (fallback to Program Files installs in developer machines). -->
+    <WiXNuGetIncludePath>$(UserProfile)\.nuget\packages\wix\3.14.1\tools\sdk\inc\</WiXNuGetIncludePath>
+    <WiXIncludePath Condition="Exists('$(WiXNuGetIncludePath)')">$(WiXNuGetIncludePath)</WiXIncludePath>
+    <WiXIncludePath Condition="!Exists('$(WiXIncludePath)') And Exists('C:\\Program Files\\WiX Toolset v6.0\\include\\')">C:\\Program Files\\WiX Toolset v6.0\\include\\</WiXIncludePath>
+    <!-- Map MSBuild WiX targets and extension/tool folders to the NuGet WiX package
+         so the .wixproj can import Wix.targets and HintPath values resolve. -->
+    <WixTargetsPath Condition="Exists('$(UserProfile)\\.nuget\\packages\\wix\\3.14.1\\tools\\')">$(UserProfile)\\.nuget\\packages\\wix\\3.14.1\\tools\\wix.targets</WixTargetsPath>
+    <WixExtDir Condition="Exists('$(UserProfile)\\.nuget\\packages\\wix\\3.14.1\\tools\\')">$(UserProfile)\\.nuget\\packages\\wix\\3.14.1\\tools\\</WixExtDir>
+    <!-- WiX include path is exposed via $(WIX) and individual projects should
+      reference $(WIX)sdk\VS2015\inc in their AdditionalIncludeDirectories.
+      Avoid modifying AdditionalIncludeDirectories globally to prevent
+      duplications or incorrect concatenation during evaluation. -->
+
+    <!-- Add the WDK bin folders to PATH so Tracker (and native tasks that
+      PInvoke unmanaged DLLs) can find native executables and their
+      dependent DLLs when invoked by MSBuild. Also add the 'c\build\<kit>\bin\<arch>'
+      folders where certain verification DLLs (InfVerif.dll) live so the
+      DPVerifier task can load them at runtime. This helps solve TRK0005
+      (failed to locate drvcat.exe) and native DLL load errors like
+      InfVerif.dll failing to load because the runtime cannot find its
+      dependent DLLs. -->
+    <WDKBuildBin_x64>$(WDKContentRoot)build\$(WDKBuildFolder)\bin\x64\</WDKBuildBin_x64>
+    <WDKBuildBin_x86>$(WDKContentRoot)build\$(WDKBuildFolder)\bin\x86\</WDKBuildBin_x86>
+    <PATH>$(WDKBinRoot_x64);$(WDKBinRoot_x86);$(WDKBuildBin_x64);$(WDKBuildBin_x86);$(PATH)</PATH>
+    <!-- Disable package verification (InfVerif/DPVerifierTask) for local builds
+      where the full WDK environment isn't installed. Leave this as a
+      repo-level convenience; CI or developers with WDK installed can
+      override by passing /p:SkipPackageVerification=false on the msbuild
+      command-line. -->
+    <SkipPackageVerification>true</SkipPackageVerification>
+  </PropertyGroup>
+</Project>
