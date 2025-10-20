@@ -20,6 +20,7 @@
 #include "dllmain.h"
 #include "tinyasio.h"
 #include "wrapper.h"
+#include "broker_client.h"
 #include "utility.h"
 
 using namespace Sar;
@@ -80,11 +81,38 @@ AsioStatus SarAsioWrapper::start()
         return AsioStatus::OK;
     }
 
-    _sar = std::make_shared<SarClient>(_config, _bufferConfig);
+    // Try to connect to broker first. If broker is present it will own the SAR
+    // device and provide shared buffers for multiple clients. Fall back to
+    // direct SAR client if broker isn't available.
+    _broker = new BrokerClient();
 
-    if (!_sar->start()) {
-        LOG(INFO) << "Failed to start SAR";
-        return AsioStatus::HardwareMalfunction;
+    BrokerRegisterRequest req = {};
+    req.msgType = BROKER_MSG_REGISTER;
+    req.pid = GetCurrentProcessId();
+    req.endpointIndex = 0;
+    req.channels = 1;
+    req.frameSize = _bufferConfig.periodFrameSize;
+    req.sampleSize = _bufferConfig.sampleSize;
+    req.sampleRate = _bufferConfig.sampleRate;
+    req.direction = 0;
+
+    BrokerRegisterResponse resp = {};
+
+    if (_broker->registerClient(req, resp) && resp.status == 0) {
+        LOG(INFO) << "Connected to SarAsioBroker, mapping: " << TCHARToUTF8(resp.sectionName);
+        // TODO: map the returned section and use it as the audio buffer
+    } else {
+        if (_broker) {
+            delete _broker;
+            _broker = nullptr;
+        }
+
+        _sar = std::make_shared<SarClient>(_config, _bufferConfig);
+
+        if (!_sar->start()) {
+            LOG(INFO) << "Failed to start SAR";
+            return AsioStatus::HardwareMalfunction;
+        }
     }
 
     return _innerDriver->start();
@@ -96,6 +124,12 @@ AsioStatus SarAsioWrapper::stop()
 
     if (!_innerDriver) {
         return AsioStatus::OK;
+    }
+
+    if (_broker) {
+        _broker->disconnect();
+        delete _broker;
+        _broker = nullptr;
     }
 
     if(_sar)
@@ -477,17 +511,10 @@ AsioStatus SarAsioWrapper::createBuffers(
                 channel.asioBuffers[1];
     }
 
-    InterlockedCompareExchangePointer((PVOID *)&gActiveWrapper, this, nullptr);
-
-    // We need a thiscall thunk to support multiple active instances, and
-    // there doesn't seem to be any reasonable use case for that, so for now
-    // just use a global reference to our wrapper.
-    if (gActiveWrapper != this) {
-        LOG(ERROR) << "Client attempted to create multiple active instances of "
-            << "SarAsioWrapper. This is currently unsupported.";
-        disposeBuffers();
-        return AsioStatus::HardwareMalfunction;
-    }
+    // Multiple active instances are allowed when using the broker. Still set
+    // gActiveWrapper to this to keep ASIO callback thunks working; this is a
+    // temporary measure. The broker will handle multi-client mixing.
+    InterlockedExchangePointer((PVOID *)&gActiveWrapper, this);
 
     return AsioStatus::OK;
 }
@@ -521,7 +548,8 @@ AsioStatus SarAsioWrapper::disposeBuffers()
     _callbacks = {};
     _userTick = nullptr;
     _userTickWithTime = nullptr;
-    InterlockedExchangePointer((PVOID *)&gActiveWrapper, nullptr);
+    // Clear gActiveWrapper if it points to this instance
+    InterlockedCompareExchangePointer((PVOID *)&gActiveWrapper, nullptr, this);
     return _innerDriver->disposeBuffers();
 }
 

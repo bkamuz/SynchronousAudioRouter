@@ -104,6 +104,8 @@ private:
     std::shared_ptr<SarClient> _sar;
     std::shared_ptr<SarCastMaster> _castMaster;
     CComPtr<IASIO> _innerDriver;
+    // Broker client for multi-client support
+    class BrokerClient *_broker = nullptr;
     std::vector<VirtualChannel> _virtualInputs;
     std::vector<VirtualChannel> _virtualOutputs;
     AsioTickCallback *_userTick;
