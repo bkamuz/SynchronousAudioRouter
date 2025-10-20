@@ -161,7 +161,7 @@
                  Win64="yes">
         <File Id="SarAsio_x64_32.dll"
               Name="SarAsio.dll"
-              Source="..\Release\SarAsio.dll"
+              Source="..\x64\Release\SarAsio.dll"
               KeyPath="yes"/>
         <RegistryValue Root="HKLM"
                        Key="SOFTWARE\Wow6432Node\Classes\CLSID\{0569D852-1F6A-44A7-B7B5-EFB78B66BE21}\InProcServer32"
